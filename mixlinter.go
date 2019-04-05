@@ -6,6 +6,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 	"reflect"
+	"strings"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -27,6 +28,10 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	ins.Preorder(nodeFilter, func(n ast.Node) {
+		fileDirList := strings.Split(pass.Fset.File(n.Pos()).Name(), "/")
+		if strings.HasPrefix(fileDirList[len(fileDirList) - 1], "mock_") {
+			return
+		}
 		switch n := n.(type) {
 		case *ast.CompositeLit:
 			var fields []string
