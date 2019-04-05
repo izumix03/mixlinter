@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/parser"
+	"go/token"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -40,8 +42,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.CompositeLit)(nil),
 	}
 
-	ins.Preorder(nodeFilter, func(n ast.Node) {
-		fileDirList := strings.Split(pass.Fset.File(n.Pos()).Name(), "/")
+	ins.Preorder(nodeFilter, func(nd ast.Node) {
+		fileDirList := strings.Split(pass.Fset.File(nd.Pos()).Name(), "/")
 		fileName := fileDirList[len(fileDirList)-1]
 		if strings.HasPrefix(fileName, "mock_") {
 			return
@@ -54,7 +56,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 
 		var keySet bool
-		switch n := n.(type) {
+		switch n := nd.(type) {
 		case *ast.CompositeLit:
 			var fields []string
 			var setFields []string
@@ -63,26 +65,79 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return
 			}
 
-			if ident, ok := n.Type.(*ast.Ident); ok {
-				// memo: 対象のファイルを読み込まないと構造体が解析できないみたい。。。
-				fmt.Printf("type %+v\n", pass.Fset.Position(ident.Obj.Pos()))
-				if reflect.ValueOf(ident.Obj).IsNil() || reflect.ValueOf(ident.Obj.Decl).IsNil() {
-					fmt.Println("return")
+			// pkg外
+			if se, ok := n.Type.(*ast.SelectorExpr); ok {
+				f, err := parser.ParseFile(token.NewFileSet(), fileName, nil, 0)
+				if err != nil {
+					fmt.Printf("Failed to parse file\n")
 					return
 				}
 
-				if ts, ok := ident.Obj.Decl.(*ast.TypeSpec); ok {
-					if st, ok := ts.Type.(*ast.StructType); ok {
-						for _, f := range st.Fields.List {
-							if len(f.Names) == 0 {
-								switch t := f.Type.(type) {
-								case *ast.SelectorExpr:
-									fields = append(fields, t.Sel.Name)
+				for _, imp := range f.Imports {
+					if imp.Name == se.X {
+						// parse dirして field に append
+					}
+				}
+				fmt.Printf("%+v\n", se)
+				fmt.Printf("%+v\n", se.X)
+			}
+
+			// pkgない
+			if ident, ok := n.Type.(*ast.Ident); ok {
+				if reflect.ValueOf(ident.Obj).IsNil() || reflect.ValueOf(ident.Obj.Decl).IsNil() {
+					// 同一ファイル外
+					fl, err := parser.ParseDir(token.NewFileSet(), strings.Join(fileDirList[0:len(fileDirList)-1], "/"), nil, 0)
+					if err != nil {
+						fmt.Printf("Failed to parse file\n")
+						return
+					}
+					for _, f := range fl {
+						ast.Inspect(f, func(node ast.Node) bool {
+							genDecl, ok := node.(*ast.GenDecl)
+							if !ok {
+								return true
+							}
+							for _, spec := range genDecl.Specs {
+								typeSpec, ok := spec.(*ast.TypeSpec)
+								if !ok {
+									continue
 								}
-							} else {
-								switch f.Type.(type) {
-								case *ast.Ident:
-									fields = append(fields, f.Names[0].Name)
+								if st, ok := typeSpec.Type.(*ast.StructType); ok {
+									if typeSpec.Name.Name != ident.Name {
+										continue
+									}
+									for _, f := range st.Fields.List {
+										if len(f.Names) == 0 {
+											switch t := f.Type.(type) {
+											case *ast.SelectorExpr:
+												fields = append(fields, t.Sel.Name)
+											}
+										} else {
+											switch f.Type.(type) {
+											case *ast.Ident:
+												fields = append(fields, f.Names[0].Name)
+											}
+										}
+									}
+								}
+							}
+							return true
+						})
+					}
+				} else {
+					if ts, ok := ident.Obj.Decl.(*ast.TypeSpec); ok {
+						if st, ok := ts.Type.(*ast.StructType); ok {
+							for _, f := range st.Fields.List {
+								if len(f.Names) == 0 {
+									switch t := f.Type.(type) {
+									case *ast.SelectorExpr:
+										fields = append(fields, t.Sel.Name)
+									}
+								} else {
+									switch f.Type.(type) {
+									case *ast.Ident:
+										fields = append(fields, f.Names[0].Name)
+									}
 								}
 							}
 						}
@@ -102,11 +157,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				}
 			}
 			if !keySet && len(setFields) != 0 {
-				fmt.Println("return")
 				return
 			}
-			fmt.Println("fields", fields)
-			fmt.Println("setFields", setFields)
 			for _, f := range fields {
 				if !contain(f, setFields) {
 					pass.Reportf(n.Pos(), "uninitialised field found: %+v", f)

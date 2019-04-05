@@ -1,10 +1,14 @@
 package a
 
+import (
+	"fmt"
+)
+
 func main() {
 	a := Hoge{ // want "uninitialised field found: Name"
 		Test: "",
 	}
-	println(a)
+	fmt.Println(a)
 	println(Hoge{ // want "uninitialised field found: Name" "uninitialised field found: Test"
 	})
 
@@ -13,11 +17,10 @@ func main() {
 		aaa(),
 		nil,
 	}
-	println(c)
 	c = Fuga{ // want "uninitialised field found: Stringer" "uninitialised field found: Test"
 		Name: aaa(),
 	}
-	println(c)
+	fmt.Println(c)
 }
 
 func aaa() int {
