@@ -1,6 +1,7 @@
 package mixlinter
 
 import (
+	"flag"
 	"go/ast"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -9,12 +10,21 @@ import (
 	"strings"
 )
 
+var includeTest bool
+
+func init() {
+	Analyzer.Flags.BoolVar(&includeTest, "include test file", false, "include test file or not")
+}
+
 var Analyzer = &analysis.Analyzer{
 	Name: "mixlinter",
 	Doc:  Doc,
 	Run:  run,
 	Requires: []*analysis.Analyzer{
 		inspect.Analyzer,
+	},
+	Flags: flag.FlagSet{
+		Usage: nil,
 	},
 }
 
@@ -29,7 +39,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	ins.Preorder(nodeFilter, func(n ast.Node) {
 		fileDirList := strings.Split(pass.Fset.File(n.Pos()).Name(), "/")
-		if strings.HasPrefix(fileDirList[len(fileDirList) - 1], "mock_") {
+		fileName := fileDirList[len(fileDirList) - 1]
+		if strings.HasPrefix(fileName, "mock_") {
+			return
+		}
+		if !includeTest && strings.HasSuffix(fileName, "_test") {
 			return
 		}
 		switch n := n.(type) {
