@@ -43,7 +43,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		if strings.HasPrefix(fileName, "mock_") {
 			return
 		}
-		if !includeTest && strings.HasSuffix(fileName, "_test") {
+		if !includeTest && strings.HasSuffix(fileName, "_test.go") {
 			return
 		}
 		switch n := n.(type) {
