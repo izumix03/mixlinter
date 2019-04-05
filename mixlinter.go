@@ -5,6 +5,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+	"reflect"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -31,7 +32,13 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			var fields []string
 			var setFields []string
 
+			if reflect.ValueOf(n).IsNil() {
+				return
+			}
 			if ident, ok := n.Type.(*ast.Ident); ok {
+				if reflect.ValueOf(ident.Obj).IsNil() || reflect.ValueOf(ident.Obj.Decl).IsNil() {
+					return
+				}
 				if ts, ok := ident.Obj.Decl.(*ast.TypeSpec); ok {
 					if st, ok := ts.Type.(*ast.StructType); ok {
 						for _, f := range st.Fields.List {
