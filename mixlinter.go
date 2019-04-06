@@ -108,12 +108,15 @@ func run(pass *analysis.Pass) (interface{}, error) {
 												switch t := f.Type.(type) {
 												case *ast.SelectorExpr:
 													fields = append(fields, t.Sel.Name)
+												case *ast.StarExpr:
+													if tse, ok := t.X.(*ast.SelectorExpr); ok {
+														fields = append(fields, tse.Sel.Name)
+													}
+												default:
+													fmt.Printf("sf:%T\n", f.Type)
 												}
 											} else {
-												switch f.Type.(type) {
-												case *ast.Ident:
-													fields = append(fields, f.Names[0].Name)
-												}
+												fields = append(fields, f.Names[0].Name)
 											}
 										}
 									}

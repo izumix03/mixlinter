@@ -17,6 +17,7 @@ func main() {
 		"",
 		aaa(),
 		nil,
+		nil,
 	}
 	c = b.Fuga{ // want "uninitialised field found: Stringer" "uninitialised field found: Test"
 		Name: aaa(),
