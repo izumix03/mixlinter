@@ -4,11 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+	"path/filepath"
 	"reflect"
 	"strings"
 )
@@ -67,19 +69,60 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 			// pkg外
 			if se, ok := n.Type.(*ast.SelectorExpr); ok {
-				f, err := parser.ParseFile(token.NewFileSet(), fileName, nil, 0)
+
+				f, err := parser.ParseFile(token.NewFileSet(), pass.Fset.File(nd.Pos()).Name(), nil, 0)
 				if err != nil {
-					fmt.Printf("Failed to parse file\n")
+					fmt.Printf("pkg out Failed to parse file: %s\n", err)
 					return
 				}
 
 				for _, imp := range f.Imports {
-					if imp.Name == se.X {
-						// parse dirして field に append
+					xList := strings.Split(strings.Trim(imp.Path.Value, `"`), "/")
+					x := xList[len(xList)-1]
+
+					gopath := build.Default.GOPATH
+					if x == fmt.Sprintf("%s", se.X) {
+						fl, err := parser.ParseDir(token.NewFileSet(), filepath.Join(gopath, "src", strings.Trim(imp.Path.Value, `"`)), nil, 0)
+						if err != nil {
+							fmt.Printf("parse err:%+v\n", err)
+							return
+						}
+
+						for _, f := range fl {
+							ast.Inspect(f, func(node ast.Node) bool {
+								genDecl, ok := node.(*ast.GenDecl)
+								if !ok {
+									return true
+								}
+								for _, spec := range genDecl.Specs {
+									typeSpec, ok := spec.(*ast.TypeSpec)
+									if !ok {
+										continue
+									}
+									if st, ok := typeSpec.Type.(*ast.StructType); ok {
+										if typeSpec.Name.Name != se.Sel.Name {
+											continue
+										}
+										for _, f := range st.Fields.List {
+											if len(f.Names) == 0 {
+												switch t := f.Type.(type) {
+												case *ast.SelectorExpr:
+													fields = append(fields, t.Sel.Name)
+												}
+											} else {
+												switch f.Type.(type) {
+												case *ast.Ident:
+													fields = append(fields, f.Names[0].Name)
+												}
+											}
+										}
+									}
+								}
+								return true
+							})
+						}
 					}
 				}
-				fmt.Printf("%+v\n", se)
-				fmt.Printf("%+v\n", se.X)
 			}
 
 			// pkgない
