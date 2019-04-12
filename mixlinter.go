@@ -1,6 +1,7 @@
 package mixlinter
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -10,6 +11,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -50,6 +52,32 @@ func filterFile(fileName string) bool {
 	return false
 }
 
+func hasNolintComment(pass *analysis.Pass, node ast.Node) bool {
+	fileName := pass.Fset.File(node.Pos()).Name()
+	line := pass.Fset.File(node.Pos()).Line(node.Pos())
+
+	fp, err := os.Open(fileName)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err := fp.Close(); err != nil {
+			panic(err)
+		}
+	}()
+
+	scanner := bufio.NewScanner(fp)
+	for i := 0; i != line; i++ {
+		scanner.Scan()
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
+	}
+	lineText := scanner.Text()
+
+	return strings.Contains(lineText, "nolint:mixlinter")
+}
+
 func run(pass *analysis.Pass) (interface{}, error) {
 	ins := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
@@ -58,6 +86,10 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	ins.Preorder(nodeFilter, func(astNode ast.Node) {
+		if hasNolintComment(pass, astNode) {
+			return
+		}
+
 		fileDirList := strings.Split(pass.Fset.File(astNode.Pos()).Name(), "/")
 		fileName := fileDirList[len(fileDirList)-1]
 		if filterFile(fileName) {
