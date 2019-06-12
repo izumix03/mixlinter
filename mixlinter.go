@@ -8,13 +8,14 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
-	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 )
 
 var includeTest bool
@@ -81,13 +82,13 @@ func hasNolintComment(pass *analysis.Pass, node ast.Node) bool {
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
-	ins := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
 		(*ast.CompositeLit)(nil),
 	}
 
-	ins.Preorder(nodeFilter, func(astNode ast.Node) {
+	insp.Preorder(nodeFilter, func(astNode ast.Node) {
 		if hasNolintComment(pass, astNode) {
 			return
 		}
@@ -119,68 +120,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return
 			}
 
-			for _, imp := range nodeFile.Imports {
-				importDirName := strings.Split(strings.Trim(imp.Path.Value, `"`), "/")
-				importName := importDirName[len(importDirName)-1]
-
-				if importName == fmt.Sprintf("%s", compositeLitType.X) {
-					importDir, err := parser.ParseDir(
-						token.NewFileSet(),
-						filepath.Join(build.Default.GOPATH, "src", strings.Trim(imp.Path.Value, `"`)),
-						nil,
-						0)
-					if err != nil {
-						fmt.Printf("parse err:%+v\n", err)
-						return
-					}
-
-					for _, importFile := range importDir {
-						ast.Inspect(importFile, func(node ast.Node) bool {
-							genDecl, ok := node.(*ast.GenDecl)
-							if !ok {
-								return true
-							}
-							for _, spec := range genDecl.Specs {
-								typeSpec, ok := spec.(*ast.TypeSpec)
-								if !ok {
-									continue
-								}
-								if st, ok := typeSpec.Type.(*ast.StructType); ok {
-									if typeSpec.Name.Name != compositeLitType.Sel.Name {
-										continue
-									}
-									for _, f := range st.Fields.List {
-										if len(f.Names) == 0 {
-											switch t := f.Type.(type) {
-											case *ast.SelectorExpr:
-												if strings.HasPrefix(t.Sel.Name, "XXX_") {
-													continue
-												}
-												fields = append(fields, t.Sel.Name)
-											case *ast.StarExpr:
-												if tse, ok := t.X.(*ast.SelectorExpr); ok {
-													if strings.HasPrefix(tse.Sel.Name, "XXX_") {
-														continue
-													}
-													fields = append(fields, tse.Sel.Name)
-												}
-											default:
-												fmt.Printf("sf:%T\n", f.Type)
-											}
-										} else {
-											if strings.HasPrefix(f.Names[0].Name, "XXX_") {
-												continue
-											}
-											fields = append(fields, f.Names[0].Name)
-										}
-									}
-								}
-							}
-							return true
-						})
-					}
-				}
-			}
+			fields = addFields(compositeLitType, nodeFile)
 		}
 
 		if compositeLitType, ok := compositeLit.Type.(*ast.Ident); ok {
@@ -214,11 +154,20 @@ func run(pass *analysis.Pass) (interface{}, error) {
 										switch t := f.Type.(type) {
 										case *ast.SelectorExpr:
 											fields = append(fields, t.Sel.Name)
+										case *ast.StarExpr:
+											if tse, ok := t.X.(*ast.SelectorExpr); ok {
+												if strings.HasPrefix(tse.Sel.Name, "XXX_") {
+													continue
+												}
+												fields = append(fields, tse.Sel.Name)
+											}
 										}
 									} else {
 										switch f.Type.(type) {
 										case *ast.Ident:
 											fields = append(fields, f.Names[0].Name)
+										default:
+											fmt.Println("unexpected fields")
 										}
 									}
 								}
@@ -235,11 +184,26 @@ func run(pass *analysis.Pass) (interface{}, error) {
 								switch t := f.Type.(type) {
 								case *ast.SelectorExpr:
 									fields = append(fields, t.Sel.Name)
+								case *ast.StarExpr:
+									if tse, ok := t.X.(*ast.SelectorExpr); ok {
+										if strings.HasPrefix(tse.Sel.Name, "XXX_") {
+											continue
+										}
+										fields = append(fields, tse.Sel.Name)
+									} else {
+										if txi, ok := t.X.(*ast.Ident); ok {
+											fields = append(fields, txi.Name)
+										}
+									}
+								default:
+									fmt.Println("unexpected fields:188")
 								}
 							} else {
 								switch f.Type.(type) {
 								case *ast.Ident:
 									fields = append(fields, f.Names[0].Name)
+								default:
+									fmt.Println("unexpected fields:195")
 								}
 							}
 						}
@@ -274,6 +238,73 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	})
 
 	return nil, nil
+}
+
+func addFields(compositeLitType *ast.SelectorExpr, nodeFile *ast.File) []string {
+	var fields []string
+	for _, imp := range nodeFile.Imports {
+		importDirName := strings.Split(strings.Trim(imp.Path.Value, `"`), "/")
+		importName := importDirName[len(importDirName)-1]
+
+		if importName == fmt.Sprintf("%s", compositeLitType.X) {
+			importDir, err := parser.ParseDir(
+				token.NewFileSet(),
+				filepath.Join(build.Default.GOPATH, "src", strings.Trim(imp.Path.Value, `"`)),
+				nil,
+				0)
+			if err != nil {
+				fmt.Printf("parse err:%+v\n", err)
+				return nil
+			}
+
+			for _, importFile := range importDir {
+				ast.Inspect(importFile, func(node ast.Node) bool {
+					genDecl, ok := node.(*ast.GenDecl)
+					if !ok {
+						return true
+					}
+					for _, spec := range genDecl.Specs {
+						typeSpec, ok := spec.(*ast.TypeSpec)
+						if !ok {
+							continue
+						}
+						if st, ok := typeSpec.Type.(*ast.StructType); ok {
+							if typeSpec.Name.Name != compositeLitType.Sel.Name {
+								continue
+							}
+							for _, f := range st.Fields.List {
+								if len(f.Names) == 0 {
+									switch t := f.Type.(type) {
+									case *ast.SelectorExpr:
+										if strings.HasPrefix(t.Sel.Name, "XXX_") {
+											continue
+										}
+										fields = append(fields, t.Sel.Name)
+									case *ast.StarExpr:
+										if tse, ok := t.X.(*ast.SelectorExpr); ok {
+											if strings.HasPrefix(tse.Sel.Name, "XXX_") {
+												continue
+											}
+											fields = append(fields, tse.Sel.Name)
+										}
+									default:
+										fmt.Printf("sf:%T\n", f.Type)
+									}
+								} else {
+									if strings.HasPrefix(f.Names[0].Name, "XXX_") {
+										continue
+									}
+									fields = append(fields, f.Names[0].Name)
+								}
+							}
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
+	return fields
 }
 
 func contain(s string, sl []string) bool {

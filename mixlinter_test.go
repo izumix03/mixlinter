@@ -1,8 +1,9 @@
 package mixlinter_test
 
 import (
-	"github.com/izumix03/mixlinter"
 	"testing"
+
+	"github.com/izumix03/mixlinter"
 
 	"golang.org/x/tools/go/analysis/analysistest"
 )
