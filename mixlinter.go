@@ -78,7 +78,7 @@ func hasNolintComment(pass *analysis.Pass, node ast.Node) bool {
 	}
 	lineText := scanner.Text()
 
-	return strings.Contains(lineText, "// nolint:mixlinter")
+	return strings.Contains(lineText, "// nolint:mixlinter") || strings.Contains(lineText, "//nolint:mixlinter")
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
