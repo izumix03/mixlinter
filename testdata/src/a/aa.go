@@ -19,7 +19,7 @@ type Hoga struct {
 }
 
 func construct() {
-	fmt.Printf("Hoga:%+v\n", Hoga{
+	fmt.Printf("Hoga:%+v\n", Hoga{ // want "uninitialised field found: Test3" "uninitialised field found: Time"
 		Test2: "test",
 		Fuga: &Fuga{
 			Test:     "",
